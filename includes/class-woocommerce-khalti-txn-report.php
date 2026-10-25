@@ -1,5 +1,7 @@
 <?php
 
+use Automattic\WooCommerce\Utilities\OrderUtil;
+
 if (!class_exists('WP_List_Table')) {
     include_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
 }
@@ -7,6 +9,7 @@ if (!class_exists('WP_List_Table')) {
 /**
  * Transaction_Gateway_Report class.
  */
+#[AllowDynamicProperties]
 class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
 {
     /**
@@ -16,33 +19,17 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
     {
         parent::__construct(
             array(
-                'singular' => __('Khalti Transaction Online Report', 'woocommerce-khalti'),
-                'plural' => __('Khalti Online Report', 'woocommerce-khalti'),
+                'singular' => __(
+                    'Khalti Transaction Online Report',
+                    'woocommerce-khalti'
+                ),
+                'plural' => __(
+                    'Khalti Transaction Online Report',
+                    'woocommerce-khalti'
+                ),
                 'ajax' => false,
             )
         );
-
-        add_action(
-            'admin_head',
-            array($this, 'admin_header')
-        );
-    }
-
-    /**
-     * Admin Header
-     *
-     * @return null
-     */
-    public function admin_header()
-    {
-        $page = filter_input(INPUT_GET, 'page', FILTER_SANITIZE_STRING);
-        $page = (isset($page)) ? esc_attr($page) : '';
-
-        if ('transaction-list' !== $page) {
-            return;
-        }
-
-        echo '<style type="text/css"></style>';
     }
 
     /**
@@ -58,7 +45,7 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
             case 'order_id':
                 return $item->get_id();
             case 'reference':
-                return $item->get_order_key();
+                return method_exists($item, 'get_order_key') ? $item->get_order_key() : 'N/A';
             case 'amount':
                 return $item->get_total();
             case 'status':
@@ -68,7 +55,7 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
             case 'created_at':
                 return $item->get_date_created()->date("F j, Y, g:i A");
             case 'action':
-                return '<a href="' . get_edit_post_link($item->get_id()) . '">View order</a>';
+                return wp_kses_post('<a href="' . get_edit_post_link($item->get_id()) . '">View order</a>');
             default:
                 return print_r($item, true);
         }
@@ -134,17 +121,22 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
     public function prepare_items()
     {
 
-        $this->_column_headers = $this->get_column_info();
         $orders = $this->fetch_order();
         usort($orders, array($this, 'usort_reorder'));
         $per_page = $this->get_items_per_page('records_per_page', 20);
         $current_page = $this->get_pagenum();
         $total_items = count($orders);
-        $this->items = array_slice($orders, ($current_page - 1) * $per_page, $per_page);
+
+        $this->_column_headers = $this->get_column_info();
+        $this->items = array_slice(
+            $orders,
+            ($current_page - 1) * $per_page,
+            $per_page
+        );
         $this->set_pagination_args(
             array(
-                'total_items' => $total_items, // WE have to calculate the total number of items.
-                'per_page' => $per_page, // WE have to determine how many items to show on a page.
+                'total_items' => $total_items,
+                'per_page' => $per_page,
             )
         );
     }
@@ -158,10 +150,9 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
      */
     public function usort_reorder($a, $b)
     {
-        $orderby = filter_input(INPUT_GET, 'orderby', FILTER_SANITIZE_STRING);
-        $order = filter_input(INPUT_GET, 'order', FILTER_SANITIZE_STRING);
+        $orderby = isset($_GET['orderby']) ? sanitize_text_field($_GET['orderby']) : '';
+        $order = isset($_GET['order']) ? sanitize_text_field($_GET['order']) : '';
 
-        $fun = '';
         switch ($orderby) {
             case 'order_id':
                 $fun = 'get_id';
@@ -176,7 +167,7 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
 
         $order = (!empty($order)) ? $order : 'desc';
         $result = ($orderby == 'amount')
-            ? $this->intcmp($a->get_total(), $b->get_total())
+            ? $this->int_cmp($a->get_total(), $b->get_total())
             : strcmp($a->$fun(), $b->$fun());
 
         return ('asc' === $order) ? $result : -$result;
@@ -190,26 +181,52 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
      */
     public function fetch_order()
     {
-        $args = array(
-            'meta_key'      => '_payment_method',
-            'meta_value'    => 'khalti',
-            'meta_compare'  => '=',
-        );
+        if (OrderUtil::custom_orders_table_usage_is_enabled()) {
+            $args = array(
+                'status' => array('wc-processing', 'wc-on-hold', 'wc-cancelled', 'wc-completed', 'wc-pending', 'wc-failed', 'wc-refunded'),
+                'meta_query' => array(
+                    'meta_key'      => '_payment_method',
+                    'meta_value'    => 'khalti',
+                    'meta_compare'  => '=',
+                )
+            );
 
-        if (!empty($_POST) && isset($_POST['s'])) {
-            $args['post_password'] = $_POST['s'];
+            if (!empty($_POST) && isset($_POST['s']) && '' != $_POST['s']) {
+                $args['field_query'] = array(
+                    array(
+                        'field' => 'order_key',
+                        'value' => sanitize_text_field($_POST['s'])
+                    )
+                );
+            }
+        } else {
+            $args = array(
+                'meta_key' => '_payment_method',
+                'meta_value' => 'khalti',
+                'meta_compare' => '=',
+            );
+
+            if (!empty($_POST) && isset($_POST['s'])) {
+                $args['post_password'] = sanitize_text_field($_POST['s']);
+            }
         }
 
         return wc_get_orders($args);
     }
 
-    private function intcmp($a, $b)
+    private function int_cmp($a, $b)
     {
-        if ((int)$a == (int)$b) return 0;
+        if ((int)$a == (int)$b) {
+            return 0;
+        }
 
-        if ((int)$a  > (int)$b) return 1;
+        if ((int)$a  > (int)$b) {
+            return 1;
+        }
 
-        if ((int)$a  < (int)$b) return -1;
+        if ((int)$a  < (int)$b) {
+            return -1;
+        }
     }
 
     /**
@@ -233,13 +250,19 @@ class WooCommerce_Khalti_Transaction_Report extends WP_List_Table
     {
         global $transaction_table;
 
-        echo '<div class="wrap"><h2>Khalti Transaction Report</h2>';
-        echo '<form method="post">';
+        $allowed_html = array(
+            'form' => array(
+                'method' => array()
+            ),
+        );
+
+        echo wp_kses_post('<div class="wrap"><h2>Khalti Transaction Report</h2>');
+        echo wp_kses('<form method="post">', $allowed_html);
 
         $transaction_table->prepare_items();
         $transaction_table->search_box('search', 'transaction_search');
         $transaction_table->display();
 
-        echo '</form></div>';
+        echo wp_kses('</form></div>', $allowed_html);
     }
 }

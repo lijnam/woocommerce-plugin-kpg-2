@@ -1,0 +1,58 @@
+name: khalti-e2e
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: local-test-only
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -plocal-test-only --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  wordpress:
+    image: wordpress:6.8.2-php8.2-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: "1"
+    ports:
+      - "127.0.0.1:18081:80"
+    volumes:
+      - wp_data:/var/www/html
+      - ../../:/var/www/html/wp-content/plugins/integrate-khalti-in-wc-store:ro
+      - ${CURCY_PLUGIN_PATH:-../../../woo-multi-currency}:/var/www/html/wp-content/plugins/woo-multi-currency:ro
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+
+  cli:
+    image: wordpress:cli-php8.2
+    user: "33:33"
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_data:/var/www/html
+      - ../../:/var/www/html/wp-content/plugins/integrate-khalti-in-wc-store:ro
+      - ${CURCY_PLUGIN_PATH:-../../../woo-multi-currency}:/var/www/html/wp-content/plugins/woo-multi-currency:ro
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+
+volumes:
+  db_data:
+  wp_data:

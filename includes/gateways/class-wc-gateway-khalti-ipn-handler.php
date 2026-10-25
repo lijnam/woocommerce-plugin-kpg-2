@@ -13,6 +13,7 @@ require_once dirname(__FILE__) . '/class-wc-gateway-khalti-response.php';
 /**
  * WC_Gateway_Khalti_IPN_Handler class.
  */
+#[AllowDynamicProperties]
 class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
 {
     /**
@@ -41,6 +42,7 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
     {
         $required_params = ['pidx', 'amount', 'mobile', 'purchase_order_id', 'purchase_order_name'];
         $missing_params = [];
+        $requested = [];
 
         array_push(
             $required_params,
@@ -50,13 +52,15 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
         foreach ($required_params as $param) {
             if (!isset($_REQUEST[$param])) {
                 array_push($missing_params, $param);
+            } else {
+                $requested[$param] = sanitize_text_field(
+                    wp_unslash($_REQUEST[$param])
+                );
             }
         }
 
-        if (count($missing_params) == 0) { // WPCS: CSRF ok.
+        if (count($missing_params) == 0) {
             WC_Gateway_Khalti::log('IPN Response: ' . wc_print_r($_REQUEST, true));
-
-            $requested = wp_unslash($_REQUEST); // WPCS: CSRF ok, input var ok.
 
             if ($verification_response = $this->validate_payment($requested)) {
                 do_action(
@@ -94,7 +98,35 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
 
         $order = $this->get_khalti_order($requested['purchase_order_name']);
 
-        if (!$order) {
+        if (
+            !$order
+            || $order->get_payment_method() !== 'khalti'
+            || $order->get_currency() !== 'NPR'
+            || $requested['purchase_order_id'] !== $order->get_order_key()
+        ) {
+            return false;
+        }
+
+        // A refunded or reopened order must not be paid again with its old pidx.
+        if (
+            $order->get_meta('_khalti_pidx', true)
+            && !$order->has_status(wc_get_is_paid_statuses())
+        ) {
+            return false;
+        }
+
+        $pending_payments = $order->get_meta('_khalti_pending_payments', true);
+        $expected_pidx = $requested['pidx'];
+
+        if (
+            !is_array($pending_payments)
+            || !array_key_exists($expected_pidx, $pending_payments)
+        ) {
+            return false;
+        }
+
+        $expected_amount = $pending_payments[$expected_pidx];
+        if (!ctype_digit((string) $expected_amount)) {
             return false;
         }
 
@@ -119,10 +151,28 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
             return false;
         }
 
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            WC_Gateway_Khalti::log('Khalti Payment Verification HTTP error', 'error');
+            return false;
+        }
+
         $response_body = wp_remote_retrieve_body($response);
         $response_body = json_decode($response_body, true);
 
-        if (isset($response_body['status']) && $response_body['status'] == 'Completed') {
+        if (
+            is_array($response_body)
+            && isset($response_body['status'], $response_body['pidx'], $response_body['total_amount'], $response_body['transaction_id'])
+            && $response_body['status'] === 'Completed'
+            && $response_body['pidx'] === $expected_pidx
+            && is_string($response_body['transaction_id'])
+            && $response_body['transaction_id'] !== ''
+            && ctype_digit((string) $response_body['total_amount'])
+            && (string) $response_body['total_amount'] === (string) $expected_amount
+            && ctype_digit((string) $requested['amount'])
+            && (string) $requested['amount'] === (string) $expected_amount
+            && (int) $expected_amount === (int) round((float) $order->get_total() * 100)
+            && (!isset($response_body['refunded']) || $response_body['refunded'] === false)
+        ) {
             WC_Gateway_Khalti::log('Payment Verification: Successful');
 
             $response_body['order_key'] = $requested['purchase_order_name'];
@@ -164,11 +214,13 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
                 );
 
                 wp_safe_redirect(
-                    esc_url_raw(add_query_arg(
-                        'utm_nooverride',
-                        '1',
-                        $this->gateway->get_return_url($order)
-                    ))
+                    esc_url_raw(
+                        add_query_arg(
+                            'utm_nooverride',
+                            '1',
+                            $this->gateway->get_return_url($order)
+                        )
+                    )
                 );
 
                 exit;
@@ -185,22 +237,42 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
     protected function payment_status_completed($order, $response)
     {
         if ($order->has_status(wc_get_is_paid_statuses())) {
-            WC_Gateway_Khalti::log('Aborting, Order #' . $order->get_id() . ' is already complete.');
-
-            wp_die(
-                'Order #' . $order->get_id() . ' is already complete.',
-                'Khalti IPN',
-                array('response' => 500)
-            );
+            if ($order->get_meta('_khalti_pidx', true) === $response['pidx']) {
+                return;
+            }
+            $additional = $order->get_meta('_khalti_additional_payments', true);
+            if (!is_array($additional)) {
+                $additional = array();
+            }
+            if (!isset($additional[$response['pidx']])) {
+                $additional[$response['pidx']] = wc_clean($response['transaction_id']);
+                $order->update_meta_data('_khalti_additional_payments', $additional);
+                $order->add_order_note(
+                    sprintf(
+                        __('Additional Khalti payment received: transaction %s, pidx %s. Review and refund if needed.', 'woocommerce-khalti'),
+                        $additional[$response['pidx']],
+                        wc_clean($response['pidx'])
+                    )
+                );
+                $order->save();
+                wp_mail(
+                    get_option('admin_email'),
+                    sprintf(__('Additional Khalti payment for order #%s', 'woocommerce-khalti'), $order->get_id()),
+                    sprintf(__('Review order #%s and Khalti transaction %s for a possible refund.', 'woocommerce-khalti'), $order->get_id(), $additional[$response['pidx']])
+                );
+            }
+            return;
         }
 
         if ($order->has_status('cancelled')) {
             $this->payment_status_paid_cancelled_order($order);
         }
 
-        $txn_id = isset($response['transaction_id'])
-            ? wc_clean($response['transaction_id'])
-            : wc_clean($response['idx']);
+        $txn_id = wc_clean($response['transaction_id']);
+
+        $order->update_meta_data('_khalti_pidx', wc_clean($response['pidx']));
+        $order->update_meta_data('_khalti_txn_id', $txn_id);
+        $order->save();
 
         $this->payment_complete(
             $order,
@@ -208,20 +280,6 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
             __('IPN payment completed', 'woocommerce-khalti')
         );
 
-        // Log Khalti Reference Code.
-        if ($txn_id) {
-            update_post_meta(
-                $order->get_id(),
-                '_khalti_pidx',
-                wc_clean($response['pidx'])
-            );
-
-            update_post_meta(
-                $order->get_id(),
-                '_khalti_txn_id',
-                $txn_id
-            );
-        }
     }
 
     /**
@@ -232,9 +290,9 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
      */
     protected function payment_status_failed($order, $response)
     {
-        /* translators: %s: payment status */
         $order->update_status(
             'failed',
+            /* translators: %s: payment status */
             sprintf(__('Payment %s via IPN.', 'woocommerce-khalti'), 'failed')
         );
     }
@@ -261,23 +319,23 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
      */
     protected function payment_status_paid_cancelled_order($order)
     {
-        if (version_compare(WC_VERSION, '3.3.0', '>')) {
+        if (version_compare(WC_VERSION, '4.5', '>')) {
             $this->send_ipn_email_notification(
-                /* translators: %s: order link. */
                 sprintf(
+                    /* translators: %s: order ID. */
                     __(
                         'Payment for cancelled order %s received',
                         'woocommerce-khalti'
                     ),
-                    '<a class="link" href="' . esc_url($order->get_edit_order_url()) . '">' . $order->get_order_number() . '</a>'
+                    $order->get_order_number()
                 ),
-                /* translators: %s: order ID. */
                 sprintf(
+                    /* translators: %s: order link. */
                     __(
                         'Order #%s has been marked paid by Khalti IPN, but was previously cancelled. Admin handling required.',
                         'woocommerce-khalti'
                     ),
-                    $order->get_order_number()
+                    '<a class="link" href="' . esc_url($order->get_edit_order_url()) . '">' . $order->get_order_number() . '</a>'
                 )
             );
         }
@@ -311,4 +369,5 @@ class WC_Gateway_Khalti_IPN_Handler extends WC_Gateway_Khalti_Response
             $message
         );
     }
+
 }

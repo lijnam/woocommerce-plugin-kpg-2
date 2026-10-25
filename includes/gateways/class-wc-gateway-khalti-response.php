@@ -11,16 +11,9 @@ defined('ABSPATH') || exit;
 /**
  * WC_Gateway_Khalti_Response class.
  */
+#[AllowDynamicProperties]
 abstract class WC_Gateway_Khalti_Response
 {
-
-    /**
-     * Sandbox mode.
-     *
-     * @var boolean
-     */
-    protected $sandbox = false;
-
     /**
      * Get the order from the Khalti Order ID and Key variable.
      *
@@ -58,9 +51,14 @@ abstract class WC_Gateway_Khalti_Response
      * @param string   $txn_id Transaction ID.
      * @param string   $note Payment note.
      */
-    protected function payment_complete($order, $txn_id = '', $note = '')
-    {
-        $order->update_status('processing', $note, 'success');
+    protected function payment_complete(
+        $order,
+        $txn_id = '',
+        $note = ''
+    ) {
+        if ($note) {
+            $order->add_order_note(sanitize_text_field($note));
+        }
         $order->payment_complete($txn_id);
 
         WC()->cart->empty_cart();
@@ -75,7 +73,6 @@ abstract class WC_Gateway_Khalti_Response
     protected function payment_on_hold($order, $reason = '')
     {
         $order->update_status('on-hold', $reason);
-        $order->reduce_order_stock();
 
         WC()->cart->empty_cart();
     }

@@ -10,9 +10,12 @@
 
 defined('ABSPATH') || exit;
 
+use Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController;
+
 /**
  * WC_Gateway_Khalti Class.
  */
+#[AllowDynamicProperties]
 class WooCommerce_Khalti_Data
 {
     /**
@@ -26,7 +29,9 @@ class WooCommerce_Khalti_Data
     {
         add_action(
             'add_meta_boxes',
-            array($this, 'add_custom_meta_boxes')
+            array($this, 'add_custom_meta_boxes'),
+            10,
+            1
         );
 
         add_action(
@@ -59,31 +64,36 @@ class WooCommerce_Khalti_Data
 
     public function add_custom_meta_boxes()
     {
+        $screen = (class_exists('\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController')
+            && wc_get_container()->get(CustomOrdersTableController::class)->custom_orders_table_usage_is_enabled())
+            ? wc_get_page_screen_id('shop-order')
+            : 'shop_order';
+
         add_meta_box(
             'mv_other_fields',
             'Payment Info',
             array($this, 'khalti_info'),
-            'shop_order',
+            $screen,
             'side',
             'core'
         );
     }
 
-    public function khalti_info()
+    public function khalti_info($post)
     {
-        global $post;
+        $order = ($post instanceof WP_Post) ? wc_get_order($post->ID) : $post;
 
-        $order = wc_get_order($post->ID);
         $meta_info = '<p>Payment Method: <strong>Khalti </strong>';
         $meta_info .= '<p>Txn ID: <strong>' . $order->get_meta('_khalti_txn_id') . '</strong>';
 
-        echo $meta_info;
+        echo wp_kses_post($meta_info);
     }
 
     public function register_my_transaction_submenu_page()
     {
         include_once dirname(__FILE__) . '/class-woocommerce-khalti-txn-report.php';
         $txn_report = new WooCommerce_Khalti_Transaction_Report;
+
         $hook = add_submenu_page(
             'woocommerce',
             'Khalti Txn List',
@@ -93,11 +103,14 @@ class WooCommerce_Khalti_Data
             array($txn_report, 'transaction_page_callback')
         );
 
-        add_action("load-$hook", array($txn_report, 'add_options_transaction'));
+        add_action(
+            "load-$hook",
+            array($txn_report, 'add_options_transaction')
+        );
     }
 
     /*Display order custom meta data on email notifications*/
-    public function add_note_after_order_details_email($order, $sent_to_admin, $plain_text, $email)
+    public function add_note_after_order_details_email($order)
     {
         if ('khalti' != $order->get_payment_method()) {
             return;
@@ -106,12 +119,12 @@ class WooCommerce_Khalti_Data
         $add_info = '<div style="margin-bottom: 40px;">';
         $add_info .= '<h2>Khalti Help & Support</h2>';
         $add_info .= '<table cellspacing="0" cellpadding="6" border="1" style="color:#636363;border:1px solid #e5e5e5;vertical-align:middle;width:100%;font-family:Helvetica,Roboto,Arial,sans-serif">';
-        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;font-family:Helvetica,Roboto,Arial,sans-serif;word-wrap:break-word">Toll Free: 1660-01-5-8888</td></tr>';
-        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;font-family:Helvetica,Roboto,Arial,sans-serif;word-wrap:break-word">Viber (Chat Only) Support: khalti.com/viber</td></tr>';
-        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;font-family:Helvetica,Roboto,Arial,sans-serif;word-wrap:break-word">Email: merchantsupport@khalti.com</td></tr>';
-        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;font-family:Helvetica,Roboto,Arial,sans-serif;word-wrap:break-word">Phone: 01-5970017</td></tr>';
+        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;word-wrap:break-word">Toll Free: 1660-01-5-8888</td></tr>';
+        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;word-wrap:break-word">Viber (Chat Only) Support: khalti.com/viber</td></tr>';
+        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;word-wrap:break-word">Email: merchantsupport@khalti.com</td></tr>';
+        $add_info .= '<tr><td style="color:#636363;border:1px solid #e5e5e5;padding:12px;text-align:left;vertical-align:middle;word-wrap:break-word">Phone: 01-5970017</td></tr>';
         $add_info .= '</table></div>';
 
-        echo $add_info;
+        echo wp_kses_post($add_info);
     }
 }

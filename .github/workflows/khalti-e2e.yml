@@ -1,0 +1,43 @@
+name: Khalti checkout tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the tested CURCY version
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/khalti-e2e"
+          curl --fail --location --retry 3 \
+            https://downloads.wordpress.org/plugin/woo-multi-currency.zip \
+            --output "$RUNNER_TEMP/khalti-e2e/curcy.zip"
+          unzip -q "$RUNNER_TEMP/khalti-e2e/curcy.zip" -d "$RUNNER_TEMP/khalti-e2e"
+          test -f "$RUNNER_TEMP/khalti-e2e/woo-multi-currency/woo-multi-currency.php"
+          rg --quiet --fixed-strings 'Version: 2.2.19' \
+            "$RUNNER_TEMP/khalti-e2e/woo-multi-currency/woo-multi-currency.php"
+          echo "CURCY_PLUGIN_PATH=$RUNNER_TEMP/khalti-e2e/woo-multi-currency" >> "$GITHUB_ENV"
+
+      - name: Run PHP regression tests
+        run: docker run --rm -v "$PWD:/plugin:ro" -w /plugin php:8.2-cli php tests/run.php
+
+      - name: Run checkout test with legacy order storage
+        run: bash tests/docker/run.sh
+
+      - name: Run checkout test with HPOS
+        run: bash tests/docker/run.sh --hpos
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose -f tests/docker/compose.yaml logs --no-color --tail=100
+
+      - name: Stop test containers
+        if: always()
+        run: docker compose -f tests/docker/compose.yaml down --volumes --remove-orphans

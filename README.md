@@ -61,11 +61,13 @@ Automatic updates should work like a charm; as always though, ensure you backup 
 
 At the moment the Khalti accepts payments only from Nepal.
 
-Configure the plugin to receive payments only users who select Nepal in payment information during checkout.
+Khalti accepts payments in NPR. A store can use another base currency, such as USD, when a multi-currency plugin keeps the checkout and resulting order in NPR.
 
 = I don't see Khalti payment option during checkout? =
 
-You forgot to select the Nepal during registration at checkout. The Khalti payment option works only with Nepal.
+Confirm that the gateway is enabled with a merchant secret and the checkout currency is NPR. With CURCY, add NPR, enable automatic currency selection, and enable Pay in many currencies. The store can keep USD as its base currency.
+
+See [tests/README.md](tests/README.md) for regression and Docker checkout tests, including HPOS coverage.
 
 = The request was paid and got the status of "processing" and not as "complete", that is right? =
 

@@ -18,6 +18,19 @@
 
 defined('ABSPATH') || exit;
 
+add_action(
+    'before_woocommerce_init',
+    function () {
+        if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
+            \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+                'custom_order_tables',
+                __FILE__,
+                true
+            );
+        }
+    }
+);
+
 // Define WC_KHALTI_PLUGIN_FILE.
 if (!defined('WC_KHALTI_PLUGIN_FILE')) {
     define('WC_KHALTI_PLUGIN_FILE', __FILE__);

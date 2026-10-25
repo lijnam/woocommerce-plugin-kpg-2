@@ -8,6 +8,8 @@
 
 defined('ABSPATH') || exit;
 
+// use Automattic\WooCommerce\Utilities\LoggingUtil;
+
 /**
  * Settings for Khalti Gateway.
  */
@@ -46,7 +48,7 @@ return array(
         'type'        => 'text',
         'desc_tip'    => true,
         'description' => __(
-            'Please enter your live Khalti merchant secret; this is needed in order to take payment.',
+            'Please enter your live Khalti merchant secret; this is needed to take the payment.',
             'woocommerce-khalti'
         ),
         'default'     => '',
@@ -56,7 +58,7 @@ return array(
         'type'        => 'text',
         'desc_tip'    => true,
         'description' => __(
-            'Please enter your test Khalti merchant secret; this is needed inorder to test payment.',
+            'Please enter your test Khalti merchant secret; this is needed to test the payment.',
             'woocommerce-khalti'
         ),
         'default'     => '',
@@ -71,8 +73,8 @@ return array(
         'type'        => 'checkbox',
         'label'       => __('Enable Sandbox Mode', 'woocommerce-khalti'),
         'default'     => 'no',
-        /* translators: %s: Khalti contact page */
         'description' => sprintf(
+            /* translators: %s: Khalti contact page */
             __(
                 'Enable Khalti sandbox to test payments. Please contact Khalti Merchant/Service Provider for a <a href="%s" target="_blank">developer account</a>.',
                 'woocommerce-khalti'
@@ -100,13 +102,20 @@ return array(
         'type'        => 'checkbox',
         'label'       => __('Enable logging', 'woocommerce-khalti'),
         'default'     => 'no',
-        /* translators: %s: Khalti log file path */
         'description' => sprintf(
+            /* translators: %s: Khalti log file path */
             __(
                 'Log Khalti events, such as IPN requests, inside <code>%s</code>',
                 'woocommerce-khalti'
             ),
-            wc_get_log_file_path('khalti')
+            wp_upload_dir()['basedir'].'/wc-logs/khalti-'.date('Y-m-d').'-xxxxxxxxxx.log'
+        ). '<br/>'. sprintf(
+            /* translators: %s: WooCommerce log link */
+            __(
+                'You may also check WC logs from <a href="%s">WooCommerce > Status > Logs</a>',
+                'woocommerce-khalti'
+            ),
+            admin_url('admin.php?page=wc-status&tab=logs')
         ),
     ),
     'ipn_notification'     => array(
