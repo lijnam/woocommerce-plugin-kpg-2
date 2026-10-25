@@ -179,8 +179,20 @@ class WC_Gateway_Khalti extends WC_Payment_Gateway
      */
     protected function is_supported_checkout_currency()
     {
+        $currency = get_woocommerce_currency();
+
+        // A shopper retrying an existing NPR order may have lost the CURCY
+        // currency cookie. WooCommerce's order-pay page already has the order.
+        if (function_exists('is_checkout_pay_page') && is_checkout_pay_page()) {
+            $order_id = (int) get_query_var('order-pay');
+            $order = $order_id ? wc_get_order($order_id) : false;
+            if ($order) {
+                $currency = $order->get_currency();
+            }
+        }
+
         return in_array(
-            get_woocommerce_currency(),
+            $currency,
             apply_filters(
                 'woocommerce_khalti_supported_currencies',
                 array('NPR')

@@ -32,11 +32,13 @@ add_filter('pre_http_request', function ($preempt, $args, $url) {
             'transaction_id' => 'txn-' . substr($pidx, 4),
         );
         update_option('khalti_e2e_payments', $payments, false);
+        $order_id = wc_get_order_id_by_order_key($payload['purchase_order_id']);
         $payment_url = add_query_arg(array(
             'pidx' => $pidx,
             'purchase_order_id' => $payload['purchase_order_id'],
             'purchase_order_name' => $payload['purchase_order_name'],
             'amount' => $payload['amount'],
+            'order_id' => $order_id,
         ), 'https://pay.khalti.com/e2e');
         return khalti_e2e_response(array('pidx' => $pidx, 'payment_url' => $payment_url));
     }

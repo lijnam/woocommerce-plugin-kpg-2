@@ -128,6 +128,8 @@ class FakeZeroItem extends FakeDeletedItem
 function add_action($name, $callback) { $GLOBALS['hooks'][$name][] = $callback; }
 function apply_filters($name, $value) { return $value; }
 function get_woocommerce_currency() { return $GLOBALS['currency']; }
+function is_checkout_pay_page() { return !empty($GLOBALS['pay_order_id']); }
+function get_query_var($name) { return $name === 'order-pay' ? ($GLOBALS['pay_order_id'] ?? 0) : 0; }
 function plugins_url($path, $file) { return 'https://shop.example/' . $path; }
 function __($text, $domain = '') { return $text; }
 function esc_html__($text, $domain = '') { return $text; }
@@ -188,6 +190,12 @@ $usd_gateway = new WC_Gateway_Khalti();
 check($usd_gateway->enabled === 'yes', 'Khalti stays enabled on a USD store');
 check($usd_gateway->is_valid_for_use(), 'Khalti configuration valid on a USD store');
 check(!$usd_gateway->is_available(), 'Khalti hidden for USD checkout');
+$retry_order = new FakeOrder(90, 'retry-npr-order', '19.99');
+$GLOBALS['pay_order_id'] = $retry_order->get_id();
+check($usd_gateway->is_available(), 'NPR order can be retried after currency cookie is lost');
+$retry_order->currency = 'USD';
+check(!$usd_gateway->is_available(), 'USD order cannot use Khalti on order-pay page');
+unset($GLOBALS['pay_order_id']);
 ob_start();
 $usd_gateway->admin_options();
 $admin_options = ob_get_clean();

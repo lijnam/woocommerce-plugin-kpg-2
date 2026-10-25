@@ -9,8 +9,9 @@ Khalti or change a real order.
 Run the Docker end-to-end test from the plugin folder with
 `bash tests/docker/run.sh`. It starts WordPress, MySQL, WooCommerce, CURCY,
 and the edited Khalti plugin, then checks real HTTP checkout and callback
-behavior. A local WordPress HTTP filter supplies synthetic Khalti API
-responses; no live Khalti account or charge is involved. The test uses port
+behavior, including an NPR order payment retry without a currency cookie. A
+local WordPress HTTP filter supplies synthetic Khalti API responses; no live
+Khalti account or charge is involved. The test uses port
 `127.0.0.1:18081` and leaves the stack running for inspection. Stop it with
 `docker compose -f tests/docker/compose.yaml down`.
 Run `bash tests/docker/run.sh --hpos` to enable WooCommerce HPOS and repeat the

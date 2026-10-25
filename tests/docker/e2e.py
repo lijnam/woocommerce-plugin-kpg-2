@@ -103,7 +103,7 @@ def checkout(session, product_id, expected_total):
     parsed = urllib.parse.urlsplit(redirect)
     require(parsed.hostname == "pay.khalti.com", "Unexpected payment redirect: " + redirect)
     params = urllib.parse.parse_qs(parsed.query)
-    for key in ("pidx", "amount", "purchase_order_id", "purchase_order_name"):
+    for key in ("pidx", "amount", "purchase_order_id", "purchase_order_name", "order_id"):
         require(key in params, "Mock payment URL missing " + key)
     require(params["purchase_order_id"] == params["purchase_order_name"], "Order keys differ")
     return {key: params[key][0] for key in params}
@@ -144,6 +144,20 @@ expensive = checkout(Session("NP"), EXPENSIVE_ID, "2,600.00")
 require(cheap["amount"] == "130000", "Cheap order did not initiate for NPR 1300")
 require(expensive["amount"] == "260000", "Expensive order did not initiate for NPR 2600")
 
+# A shopper can retry the pending NPR order even after losing CURCY's cookie.
+pay_path = "/?" + urllib.parse.urlencode({
+    "page_id": CHECKOUT_PAGE_ID,
+    "order-pay": cheap["order_id"],
+    "pay_for_order": "true",
+    "key": cheap["purchase_order_id"],
+})
+status, pay_final_url, pay_page = Session().request(pay_path)
+pay_inputs = Inputs()
+pay_inputs.feed(pay_page)
+require(status == 200 and "khalti" in pay_inputs.payment_methods,
+        "Khalti unavailable for an NPR order-pay retry without a currency cookie: "
+        + str((pay_path, pay_final_url, sorted(pay_inputs.payment_methods))))
+
 # A real lookup for the cheaper completed pidx must not pay the expensive order.
 return_without_cookie = Session()
 expect_rejected(
@@ -167,6 +181,7 @@ print(json.dumps({
     "expensive": {"order_key": expensive["purchase_order_id"], "pidx": expensive["pidx"]},
     "usd_gateway": "hidden",
     "npr_checkout": "accepted",
+    "cookieless_order_retry": "available",
     "cross_order": "rejected",
     "tampered_amount": "rejected",
     "cookieless_return": "accepted",
