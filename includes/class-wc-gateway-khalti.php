@@ -173,7 +173,7 @@ class WC_Gateway_Khalti extends WC_Payment_Gateway
     }
 
     /**
-     * Check the currency of the current checkout, not the store configuration.
+     * Check the currency that the customer will actually pay.
      *
      * @return bool
      */
@@ -191,9 +191,9 @@ class WC_Gateway_Khalti extends WC_Payment_Gateway
             }
         }
 
-        return in_array(
-            $currency,
-            apply_filters(
+        return 'NPR' === $currency && in_array(
+            'NPR',
+            (array) apply_filters(
                 'woocommerce_khalti_supported_currencies',
                 array('NPR')
             ),

@@ -126,7 +126,11 @@ class FakeZeroItem extends FakeDeletedItem
 }
 
 function add_action($name, $callback) { $GLOBALS['hooks'][$name][] = $callback; }
-function apply_filters($name, $value) { return $value; }
+function apply_filters($name, $value) {
+    return $name === 'woocommerce_khalti_supported_currencies'
+        && isset($GLOBALS['supported_currencies'])
+        ? $GLOBALS['supported_currencies'] : $value;
+}
 function get_woocommerce_currency() { return $GLOBALS['currency']; }
 function is_checkout_pay_page() { return !empty($GLOBALS['pay_order_id']); }
 function get_query_var($name) { return $name === 'order-pay' ? ($GLOBALS['pay_order_id'] ?? 0) : 0; }
@@ -190,6 +194,9 @@ $usd_gateway = new WC_Gateway_Khalti();
 check($usd_gateway->enabled === 'yes', 'Khalti stays enabled on a USD store');
 check($usd_gateway->is_valid_for_use(), 'Khalti configuration valid on a USD store');
 check(!$usd_gateway->is_available(), 'Khalti hidden for USD checkout');
+$GLOBALS['supported_currencies'] = array('NPR', 'USD');
+check(!$usd_gateway->is_available(), 'Currency filter cannot enable Khalti for USD checkout');
+unset($GLOBALS['supported_currencies']);
 $retry_order = new FakeOrder(90, 'retry-npr-order', '19.99');
 $GLOBALS['pay_order_id'] = $retry_order->get_id();
 check($usd_gateway->is_available(), 'NPR order can be retried after currency cookie is lost');
@@ -207,6 +214,9 @@ $gateway = new WC_Gateway_Khalti();
 check($gateway->enabled === 'yes', 'Khalti shown for NPR checkout');
 check($gateway->is_valid_for_use(), 'Khalti configuration valid for NPR checkout');
 check($gateway->is_available(), 'Khalti available for NPR checkout');
+$GLOBALS['supported_currencies'] = array();
+check(!$gateway->is_available(), 'Currency filter can disable NPR checkout');
+unset($GLOBALS['supported_currencies']);
 check($gateway->payment_request_api_endpoint === 'https://khalti.com/api/v2/epayment/initiate/', 'live endpoint');
 $GLOBALS['options']['testmode'] = 'yes';
 $test_gateway = new WC_Gateway_Khalti();
